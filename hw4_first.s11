@@ -1,0 +1,229 @@
+emt_mask=177400
+tks = 177560
+tkb = 177562
+tps = 177564
+tpb = 177566
+cls = 177546
+len = 7
+CR = 15
+LF = 12
+BS = 10
+DR = 44
+SC = 40
+W = 127
+B = 102
+US = 137
+		.=torg + 60
+		.word getChar, 200
+		.=torg + 100
+		.word clock, 300
+		.=torg + 1000
+main:		mov pc, sp
+			tst -(sp)
+			mov #Welcome, -(sp)
+			jsr pc, writeLn	
+			tst (sp)+
+			jsr pc,askFrCmd
+			mov #UserIn, -(sp)
+			jsr pc, readLn
+			tst (sp)+
+			jsr pc, newLine
+			jsr pc, prtBoard
+
+			movb #100, @#cls
+w:			br w
+			halt
+			halt
+
+clock:		mov r0, -(sp)
+			add #1, @#Aclock
+			cmp @#Aclock, #50.
+			beq secPass
+			br endClock
+			cmp @#Sclock, #5.
+			bne	endClock
+			movb #0, @#cls
+			endClock
+secPass:	clrb @#Aclock
+			add #1, @#Sclock
+			mov #48., r0
+			add @#Sclock, r0
+			jsr pc, putChar
+endClock:	mov (sp)+, r0
+			rti
+
+askFrCmd:	mov r0, -(sp)		;we will use r0
+			movb #DR, r0		
+			jsr pc, putChar		;print $
+			movb #SC, r0
+			jsr pc, putChar		;print " "(space)
+			mov (sp)+, r0		
+			rts pc
+
+prtBoard:	mov r0, -(sp)		;iterator of rows
+			mov r1, -(sp)		;r1 iterator of columns
+			mov r2, -(sp)		;r2 will hold print string(row)
+			mov r3, -(sp)		;r3 will hold Board address
+			mov #Board, r3
+			mov #8., r0			;iterator for rows
+loopRow:	mov #8., r1			;iterator for columns
+			mov #RowPrint, r2 	; address for the string
+loopCol:	cmp (r3), #1
+			beq pwnWhite
+			cmp (r3), #2
+			beq pwnBlack
+			movb #US, (r2)+		;add "_"
+			tst (r3)+
+			sob r1, loopCol		;next column
+colConti:	movb #0, (r2)+ 		; add '\0'
+			mov #RowPrint, -(sp)
+			jsr pc, writeLn
+			tst (sp)+
+			sob r0, loopRow		;next row
+			mov (sp)+, r3
+			mov (sp)+, r2
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc
+pwnWhite:	movb #W, (r2)+		;add "W"
+			tst (r3)+
+			sob r1, loopCol		;next column
+			br colConti
+pwnBlack: 	movb #B, (r2)+		;add "B"
+			tst (r3)+
+			sob r1, loopCol		;next column
+			br colConti
+
+;-------------------------------------------------------------------------------------
+; Function Name: WriteLn
+;
+; Gets:
+; address of string in stack by refrence
+; Returns:
+; Nothing
+; Operation:
+; Print string on the printer
+;-------------------------------------------------------------------------------------
+writeLn:	mov r0, -(sp)
+			mov 4(sp), r0
+
+writeLop:
+			tstb (r0) 
+			beq endWrite
+waitLoop: 	tstb @#tps
+			bpl waitLoop
+			movb (r0)+, @#tpb
+			br writeLop
+
+endWrite:
+			jsr pc, newLine
+			mov (sp)+, r0
+			rts pc		
+
+;-------------------------------------------------------------------------------------
+; Function Name: putChar
+; Gets:
+; char in r0 by value
+; Returns nothing
+; Print char on the screen
+;-------------------------------------------------------------------------------------
+
+putChar:
+			tstb @#tps
+			bpl .-4
+			movb r0, @#tpb
+			rts pc
+
+;-------------------------------------------------------------------------------------
+; Function Name: newLine
+; Gets:
+; char in r0 by value
+; Returns nothing
+; Print newLine on the screen
+;-------------------------------------------------------------------------------------
+newLine:
+			mov r0, -(sp)
+			movb #CR, r0
+			jsr pc, putChar
+			movb #LF, r0
+			jsr pc, putChar
+			mov (sp)+,r0
+			rts pc
+
+;-------------------------------------------------------------------------------------
+; Function Name: readLn
+; Gets: Allocated array by address using stack
+; Returns: Nothings
+; Operation: Reads data from the keyboard and put it to the array till itreachs CR
+;-------------------------------------------------------------------------------------
+readLn:
+			mov r0,-(sp) 	; push r0
+			mov r1,-(sp) 	; push r1
+			mov 6(sp), r1 	; address for the string
+echo:
+			mov #101, @#tks ; enable keyboard read
+			wait 			;wait for keyboard interupt
+			br echo 		;if not end-loop agian
+
+endRead:	
+			movb #0, (r1)+ 	; add '\0'
+			mov (sp)+,r1 	; pop r1
+			mov (sp)+,r0 	; pop r0
+			rts pc
+
+getChar:  
+loop1:
+			tstb @#tps		; test ready bit
+			bpl loop1		; repeat if not ready
+			movb @#tkb, r0	
+			cmpb r0, #CR	; if (CurrentKey == '\n') goto endRead
+			beq endGtCh
+			cmpb r0, #BS	;if CurrentKey== backspace
+			bne normEcho
+			jsr pc, putChar	;print <--(backspace)
+			mov #SC, r0
+			jsr pc, putChar	;print " "(space)
+			mov #BS, r0
+			jsr pc, putChar	;print <--(backspace)
+			br goNorm
+normEcho:	movb r0, @#tpb	; echo
+goNorm:		movb r0, (r1)+ 	; put the CurrentKey in the array
+			rti
+endGtCh:	add #2, (sp)	;add 2 to the return address
+			rti
+
+
+
+
+Aclock:		.word 0
+Sclock:		.word 0
+GameRuns: 	.blkw 0 	;if game is running
+BrdPrntd:	.blkw 0 	;if board still wasn't printed in last turn.(0- when he was)
+crPlayer:	.word 0		;player number(this turn)
+Winnter:	.blkw 0		;if there is winner
+MaskKey= 177600
+InputBuf: .blkw 26.
+RowPrint: .blkw 9. 
+	.even
+Welcome: .ascii<Welcome to 205724651 and 312238736 checkers game!\n\r\0> 
+	.even
+StartNw: .ascii<Starting a new game\n\r>
+UserIn: .ascii<$ >
+	.even
+Start: .ascii<start \0>
+	.even
+Stop: .ascii<stop \0>
+	.even
+Move: .ascii<move \0>
+	.even
+Time: .ascii<time \0>
+	.even
+
+Board:	.word	0, 2, 0, 2, 0, 2, 0, 2
+		.word	2, 0, 2, 0, 2, 0, 2, 0
+		.word	0, 2, 0, 2, 0, 2, 0, 2
+		.word	0, 0, 0, 0, 0, 0, 0, 0
+		.word	0, 0, 0, 0, 0, 0, 0, 0
+		.word	1, 0, 1, 0, 1, 0, 1, 0
+		.word	0, 1, 0, 1, 0, 1, 0, 1
+		.word	1, 0, 1, 0, 1, 0, 1, 0
