@@ -20,13 +20,20 @@ US = 137
 		.=torg + 1000
 main:		mov pc, sp
 			tst -(sp)
+			;~ print welcome msg:
 			mov #Welcome, -(sp)
 			jsr pc, writeLn	
 			tst (sp)+
+getStCmd:	;~ print $ and wait for a command:
 			jsr pc,askFrCmd
 			mov #UserIn, -(sp)
 			jsr pc, readLn
-			tst (sp)+
+			jsr pc, writeLn	
+
+			jsr pc, chkStCmd
+			cmp r2, #0
+			beq getStCmd
+			
 			jsr pc, newLine
 			jsr pc, prtBoard
 
@@ -51,6 +58,67 @@ secPass:	clrb @#Aclock
 			jsr pc, putChar
 endClock:	mov (sp)+, r0
 			rti
+;-------------------------------------------------------------------------------------
+; Function Name: chkStCmd ( check start message)
+;
+; Gets:
+; string in stack ( the input line of the user at the start) - the address of the first char in the string
+; Returns:
+; return value is in r2: "1" for a valid command and "0" for invalid.
+; Operation:
+; check string in stack: if its an unvalid command - print the right msg
+;-------------------------------------------------------------------------------------
+chkStCmd: 
+			mov r0, -(sp)	
+			mov r1, -(sp)
+			clr r2
+			mov #Start, r0
+			mov 6(sp), r1		; r1 point to the first char address
+chkNxtSt:
+			cmp (r1)+, (r0)+		
+			bne badStCmd
+			cmpb (r0), #CR		; check if we got to the end of "Start" string
+			bne chkNxtSt
+			mov #1, r2
+			br endStCmd
+
+badStCmd:	
+			mov 6(sp), -(sp)	; push string 
+			jsr pc, bdCmdPrt
+			mov #0, r2
+endStCmd:
+			tst (sp)+
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc
+
+
+;end of chkStCmd
+
+;-------------------------------------------------------------------------------------
+; Function Name: bdCmdPrt (bad command print)
+;
+; Gets:
+; string in stack (the address of the first char in the string)
+; Returns:
+; Nothing
+; Operation:
+; print "Cannot execute ""+ input string +""" 
+
+;-------------------------------------------------------------------------------------
+bdCmdPrt:	
+			mov r0, -(sp)
+			mov #BadCmdEr, -(sp); print first part of error msg
+			jsr pc, writeLn
+			mov 6(sp), -(sp)	; print string
+			jsr pc, writeLn
+			add #4, sp			; pop
+			mov #'", r0
+			jsr pc, putChar		; print the " after the string
+			add #2, sp			; pop
+			mov (sp), r0
+			rts pc
+;end of bdCmdPrt
 
 askFrCmd:	mov r0, -(sp)		;we will use r0
 			movb #DR, r0		
@@ -154,7 +222,7 @@ newLine:
 ; Function Name: readLn
 ; Gets: Allocated array by address using stack
 ; Returns: Nothings
-; Operation: Reads data from the keyboard and put it to the array till itreachs CR
+; Operation: Reads data from the keyboard and put it to the array till it reachs CR
 ;-------------------------------------------------------------------------------------
 readLn:
 			mov r0,-(sp) 	; push r0
@@ -163,7 +231,7 @@ readLn:
 echo:
 			mov #101, @#tks ; enable keyboard read
 			wait 			;wait for keyboard interupt
-			br echo 		;if not end-loop agian
+			br echo 		;if not end-loop again
 
 endRead:	
 			movb #0, (r1)+ 	; add '\0'
@@ -189,7 +257,7 @@ loop1:
 normEcho:	movb r0, @#tpb	; echo
 goNorm:		movb r0, (r1)+ 	; put the CurrentKey in the array
 			rti
-endGtCh:	add #2, (sp)	;add 2 to the return address
+endGtCh:	add #2, (sp)	;add 2 to the return address (skip "br echo")
 			rti
 
 
@@ -208,6 +276,7 @@ RowPrint: .blkw 9.
 Welcome: .ascii<Welcome to 205724651 and 312238736 checkers game!\n\r\0> 
 	.even
 StartNw: .ascii<Starting a new game\n\r>
+	.even
 UserIn: .ascii<$ >
 	.even
 Start: .ascii<start \0>
@@ -217,6 +286,8 @@ Stop: .ascii<stop \0>
 Move: .ascii<move \0>
 	.even
 Time: .ascii<time \0>
+	.even
+BadCmdEr: .ascii<Cannot execute "\n\r\0> 
 	.even
 
 Board:	.word	0, 2, 0, 2, 0, 2, 0, 2
