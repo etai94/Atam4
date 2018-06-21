@@ -185,6 +185,7 @@ endStart:	;start message was success
 			mov #WhitePlr, CrPlayer 	;white is always starting
 			mov (r0), TurnTime
 			mov #1, CrPlrCol
+			mov #100, @#cls 		;start turn! clock is on
 			mov (sp)+, r3		
 			mov (sp)+, r1
 			mov (sp)+, r0
@@ -327,9 +328,6 @@ posChk:		;check first non-space char: if is a digit
 			beq .+10			; if we check dstPos and srcPos, skip 3 lines forward
 			mov dstPos, r3
 			br .-26					; if we didnt check dstPos, go back 7 lines back
-			
-			
-			
 			mov srcPos, r2			; r2 will save the square address of the index in srcPos
 			asl r2			
 			add #Board, r2
@@ -386,7 +384,7 @@ mvSrc:		.word 0
 mvDst:		.word 0	
 			tst (sp)+				; pop board
 			cmp CrPlayer, #BlackPlr	;check current player
-			beq .+80				;go to "mov #Black, -(sp)"
+			beq blck				;go to "mov #Black, -(sp)"
 			mov #White, -(sp)
 			jsr pc, writeNLn 		;print "White "
 			cmp WhitePlr, #1		;if white is human
@@ -403,8 +401,9 @@ mvDst:		.word 0
 			mov #BlackPlr, CrPlayer ;move turn to the other player(to black)
 			mov (r0), TurnTime
 			mov #2, CrPlrCol
-			br .+66					;go to "mov #MovTime1, -(sp)"
-			mov #Black, -(sp)
+			mov #100, @#cls 		;start turn! clock is on
+			br prntTim				;go to "mov #MovTime1, -(sp)"
+blck:		mov #Black, -(sp)
 			jsr pc, writeNLn 		;print "Black "
 			cmp BlackPlr, #1		;if black is human
 			bne .+16 				;skip to "mov #Computer, -(sp)"
@@ -420,7 +419,8 @@ mvDst:		.word 0
 			mov #WhitePlr, CrPlayer ;move turn to the other player(to white)
 			mov (r0), TurnTime
 			mov #1, CrPlrCol
-			mov #MovTime1, -(sp)
+			mov #100, @#cls 		;start turn! clock is on
+prntTim:	mov #MovTime1, -(sp)
 			jsr pc, writeNLn		;print " move took "
 			;TODO: print time!(double number.x)
 			mov #MovTime2, (sp)
@@ -455,12 +455,12 @@ clock:		mov r0, -(sp)
 			mov #TimeOut1, -(sp)
 			jsr pc, writeLn
 			tst (sp)+
-			br .+14
+			br endClock
 			mov #TimeOut2, -(sp)
 			jsr pc, writeLn
 			tst (sp)+
 			br endClock
-secPass:	clrb @#Aclock
+secPass:	clr @#Aclock
 			add #1, @#Sclock
 			mov Sclock, -(sp)	;push seconds
 			jsr pc, prtAscii 	;print seconds
@@ -685,8 +685,7 @@ Board:	.word	0, 2, 0, 2, 0, 2, 0, 2
 		.word	0, 1, 0, 1, 0, 1, 0, 1
 		.word	1, 0, 1, 0, 1, 0, 1, 0
 
-	.	=	torg +20000	
-rate:		.word	2050.
+
 
 ;----------------------------------------------------------------------------
 getMaxWP:	mov #0, -(sp)		; output place in stack(by value) of the pawn who needs to move(src)
@@ -1646,3 +1645,7 @@ loopEnd:	add #2, r0
 addPawn:	add #1, r4	
 			br loopEnd	
 ;END OF cntPawn Subroutine
+
+
+	.	=	torg +20000	
+rate:		.word	2050.
