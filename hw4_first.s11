@@ -8,130 +8,474 @@ len = 7
 CR = 15
 LF = 12
 BS = 10
-DR = 44
 SC = 40
-W = 127
-B = 102
-US = 137
 		.=torg + 60
 		.word getChar, 200
 		.=torg + 100
 		.word clock, 300
-		.=torg + 1000
-main:		mov pc, sp
-			tst -(sp)
-			;~ print welcome msg:
-			mov #Welcome, -(sp)
-			jsr pc, writeLn	
+		.=torg + 3000
+main:		mov pc, sp 				;creat stack
+			tst -(sp) 				;creat stack
 			tst (sp)+
-getStCmd:	;~ print $ and wait for a command:
-			jsr pc,askFrCmd
-			mov #UserIn, -(sp)
-			jsr pc, readLn
-			jsr pc, writeLn	
+			mov #Welcome, -(sp) 	
+			jsr pc, writeLn	     	;print Welcome message
+			tst (sp)+		
+askFrCmd:	
+			jsr pc, prntAsk			;print "\n\r$ "
+			mov #InputBuf, r1		;now r1 points to the command buffer(input)
+			mov #101, @#tks 		;enable keyboard 
+			cmp GameRuns, #0		;check if game off
+			bne .+6					;skip wait(if game is ON)
+			wait 					;wait for start command
+			br .-2
+			mov #100, @#cls 		;enable CLOCK!
+			cmp @CrPlayer, #1		;check if curr player is human
+			bne .+10				;if he is computer - skip "chkHuMov"		(go to "jsr pc, compTurn")
+			wait 				 	;wait for move command
+			br .-2
+			br askFrCmd
+			jsr pc, compTurn		;the computer caluculate the best move, and move when the clock stops
+			br askFrCmd
+			halt
 
-			jsr pc, chkStCmd
-			cmp r2, #0
-			beq getStCmd
-			
-			jsr pc, newLine
+chkCmd:		jsr pc, newLine
+			cmp GameRuns, #0		;check if game off
+			bne .+10				;if he is ON, we dont want start command(skip it)
+			jsr pc, chkStart		;check if next command is currect start command
+			br askFrCmd
+			jsr pc, chkStop			;check if command is stop
+			jsr pc, chkTime			;check if command is time
+			cmp @CrPlayer, #1		;check if curr player is human
+			bne .+10				;if he is COMPUTER - skip "chkHuMov"		(go to "jsr pc, compTurn")
+			jsr pc, chkHuMov			;check if next command is currect move command
+
+			jmp askFrCmd	;TODO EDIT		
+
+chkStop:	;mov #0, GameRuns		;turn game off
+			rts pc
+chkTime: 	rts pc
+compTurn: 	wait
+			;loop, run on depth 1,3,5,7,9,... until time stops
+			;will call getMaxWP and save best output for each depth we check
+			rts pc 					;
+
+chkStart:	;checks if there is start command, and if its currect
+			;input in #InputBuf
+			mov r0, -(sp)
+			mov r1, -(sp)			;r1 will point to the InputBuf(and will move on it)
+			mov r3, -(sp)			;r3 for mul
+			mov #0, WhitePlr
+			mov #0, BlackPlr
+			mov #0, WhiteTim
+			mov #0, BlackTim
+			mov #InputBuf, -(sp)		
+			mov #StartCmp, -(sp)
+			mov #InputBuf, r1		;now r1 points to the command buffer(input)
+			mov #6, r3				;check only 6 first letters
+			jsr pc, strCmp  		;check if input start with "start "
+			add #4, sp				;pop 2 times
+			cmp r3, #0
+			beq inCurStr			;print "Cannot execute "[command]"."
+			add #6, r1				;now r1 points to the 7th letter in the input
+chkPl1Tp:	;check player 1 type
+			jsr pc, clrSpace		;move r1 point on the string, to the next letter which isnt space
+			cmpb (r1), #'h 			;check if curr letter is "h"
+			bne .+12					;skip next command(go to: check letter is "c")
+			mov #1, WhitePlr			;1 means human
+			br .+16				;continue to player 1 time
+			cmpb (r1), #'c 			;check if curr letter is "c"
+			bne inCurStr			;go to: inCurStr (incurrect start command)
+			mov #2, WhitePlr 		;2 means computer
+			;check player 1 time
+			tstb (r1)+	
+			jsr pc, clrSpace		;move r1 point on the string, to the next letter which isnt space
+chkPl1Tm:	cmpb (r1), #SC 			;check if letter is space
+			beq chkPl2Tp			;continue to player 2 type	
+			mov WhiteTim, r3
+			mul #10., r3			;r3= r3*10
+			mov r3, WhiteTim 	
+			cmpb (r1), #'0 			;check if letter is "0"
+			blt inCurStr			;go to: inCurStr (incurrect start command)
+			cmpb (r1), #'9 			;check if letter is "9"
+			bgt inCurStr			;go to: inCurStr (incurrect start command)
+			movb (r1)+, r0		 	
+			sub #'0, r0		 		;r0 is the number now, we will add to plr 1 time
+			add r0, WhiteTim 		;add time to plr 1 time
+			br chkPl1Tm 
+chkPl2Tp:	;check player 2 type
+			tstb (r1)+
+			jsr pc, clrSpace		;move r1 point on the string, to the next letter which isnt space
+			cmpb (r1), #'h 		;check if curr letter is "h"
+			bne .+12					;skip next command(go to: check letter is "c")
+			mov #1, BlackPlr			;1 means human
+			br .+16					;skip next commands(go to: "tstb (r1)+	")
+			cmpb (r1), #'c 		;check if curr letter is "c"
+			bne inCurStr			;go to: inCurStr (incurrect start command)
+			mov #2, BlackPlr 		;2 means computer
+			tstb (r1)+	
+
+			jsr pc, clrSpace		;move r1 point on the string, to the next letter which isnt space
+			tstb (r1) 				;check if letter is end of line
+			beq inCurStr			;end subroutine
+chkPl2Tm:	;check player 2 time
+			tstb (r1) 				;check if letter is end of line
+			beq endStart			;end subroutine
+			mov BlackTim, r3
+			mul #10., r3			;r3= r3*10
+			mov r3, BlackTim 		
+			cmpb (r1), #'0 			;check if letter is "0"
+			blt inCurStr			;go to: inCurStr (incurrect start command)
+			cmpb (r1), #'9 			;check if letter is "9"
+			bgt inCurStr			;go to: inCurStr (incurrect start command)
+			movb (r1)+, r0		 	
+			sub #'0, r0	 	;r0 is the number now, we will add to plr 1 time
+			add r0, BlackTim 		;add time to plr 1 time
+			br chkPl2Tm
+inCurStr:	;incurrect start command
+			mov (sp)+, r3		
+			mov (sp)+, r1
+			mov (sp)+, r0
+			mov #printErr, (sp)
+			rts pc
+endStart:	;start message was success
+			;start the game: GameRuns flag->1 (on) || CrPlayer-> 1(white)
+			mov #StartMs1, -(sp)
+			jsr pc, writeLn 		;print "Starting new game"
+			tst (sp)+
+			mov #StartMs2, -(sp)
+			jsr pc, writeNLn 		;print "White player is "
+			cmp WhitePlr, #1		;if white is human
+			bne .+16 				;skip to "mov #Computer, -(sp)"
+			mov #Human, (sp)
+			jsr pc, writeNLn 		;print "Human"
+			tst (sp)+
+			br .+14 				;skip to "mov #StartMs4, -(sp)"
+			mov #Computer, (sp)
+			jsr pc, writeNLn 		;print "Computer"
+			tst (sp)+
+			mov #StartMs4, -(sp)
+			jsr pc, writeNLn 		;print " with "
+			mov WhiteTim, (sp)	
+			jsr pc, prtAscii		;print white player time(sec)
+			mov #StartMs5, (sp)
+			jsr pc, writeLn 		;print "seconds per move"
+			tst (sp)+
+			mov #StartMs3, -(sp)
+			jsr pc, writeNLn 		;print "Black player is "
+			cmp BlackPlr, #1		;if black is human
+			bne .+16 				;skip to "mov #Computer, -(sp)"
+			mov #Human, (sp)
+			jsr pc, writeNLn 		;print "Human"
+			tst (sp)+
+			br .+14 				;skip to "mov #StartMs4, -(sp)"
+			mov #Computer, (sp)
+			jsr pc, writeNLn 		;print "Computer"
+			tst (sp)+
+			mov #StartMs4, -(sp)
+			jsr pc, writeNLn 		;print " with "
+			mov BlackTim, (sp)	
+			jsr pc, prtAscii		;print black player time(sec)
+			mov #StartMs5, (sp)
+			jsr pc, writeLn 		;print "seconds per move"
+			tst (sp)+
 			jsr pc, prtBoard
-
-			movb #100, @#cls
-w:			br w
-			halt
-			halt
-
-clock:		mov r0, -(sp)
-			add #1, @#Aclock
-			cmp @#Aclock, #50.
-			beq secPass
-			br endClock
-			cmp @#Sclock, #5.
-			bne	endClock
-			movb #0, @#cls
-			endClock
-secPass:	clrb @#Aclock
-			add #1, @#Sclock
-			mov #48., r0
-			add @#Sclock, r0
-			jsr pc, putChar
-endClock:	mov (sp)+, r0
-			rti
-;-------------------------------------------------------------------------------------
-; Function Name: chkStCmd ( check start message)
-;
-; Gets:
-; string in stack ( the input line of the user at the start) - the address of the first char in the string
-; Returns:
-; return value is in r2: "1" for a valid command and "0" for invalid.
-; Operation:
-; check string in stack: if its an unvalid command - print the right msg
-;-------------------------------------------------------------------------------------
-chkStCmd: 
-			mov r0, -(sp)	
-			mov r1, -(sp)
-			clr r2
-			mov #Start, r0
-			mov 6(sp), r1		; r1 point to the first char address
-chkNxtSt:
-			cmp (r1)+, (r0)+		
-			bne badStCmd
-			cmpb (r0), #CR		; check if we got to the end of "Start" string
-			bne chkNxtSt
-			mov #1, r2
-			br endStCmd
-
-badStCmd:	
-			mov 6(sp), -(sp)	; push string 
-			jsr pc, bdCmdPrt
-			mov #0, r2
-endStCmd:
-			tst (sp)+
+			mov #1, GameRuns		;turn on game FLAG
+			mov #WhitePlr, r0
+			add #2, r0
+			mov #WhitePlr, CrPlayer 	;white is always starting
+			mov (r0), TurnTime
+			mov #1, CrPlrCol
+			mov (sp)+, r3		
 			mov (sp)+, r1
 			mov (sp)+, r0
 			rts pc
 
+clrSpace:	cmpb (r1), #SC 			;check if next letter is " "
+			bne endClrSp			;if its not, end subroutine
+			tstb (r1)+				;ignore this space
+			br clrSpace				;check next letter
+endClrSp:	rts pc
 
-;end of chkStCmd
+printErr:	mov #ErorMsg1, -(sp)	
+			jsr pc, writeNLn		;print "Cannot execute ""
+			tst (sp)+
+			mov #InputBuf, -(sp)
+			jsr pc, writeNLn		;print "[command]"
+			tst (sp)+
+			mov #ErorMsg2, -(sp)
+			jsr pc, writeLn 		;print "" ."
+			tst (sp)+
+			jmp askFrCmd
 
+strCmp:		;gets len in r3, and return 1(in r3) if strings are same, and 0(in r3) if diff
+			;2 strings address in stack
+			mov r0, -(sp)
+			mov r1, -(sp)	
+			mov 6(sp), r0		;first string in r0
+			mov 10(sp), r1		;sec string in r1
+lpStrCmp:	cmpb (r0)+, (r1)+	;check char by char
+			bne diffStr			;if not equal, end and return 0
+			sob r3, lpStrCmp
+			mov #1, r3 			;set output 1
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc
+diffStr:	mov #0, r3			;set output 0
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc
+prtAscii:
+			mov r4,-(sp)		;sp pointer
+			mov r3,-(sp)
+			mov r2,-(sp)
+			mov r1,-(sp)
+			mov r0,-(sp)
+			mov #0, r0
+			mov #10., r1		;decimal base(10)
+			mov 14(sp), r2		;put input in r2(r2 will be pointer)
+			mov r2, r3
+asciLop1:	;push the digits as char(ascii code) to stack
+			;r0 will count inserts*2
+			tst r2
+			beq endAsLp 		;while (r2 != 0) {
+			sxt r2
+			div r1, r2 			;r2 = r3 / 10 , r3 = r3 % 10;
+			add #48., r3 		;convert numbers to ascii value of numbers
+			mov r3,-(sp)		;push r3;
+			add #2, r0 			;r0 += 2;
+			mov r2, r3 			;r3 = r2
+			br asciLop1
+endAsLp:
+			mov sp, r4			;r4 know where we need to stop print(each print pop)
+			add r0, r4			;add how many chars will we will print*2(words)
+asciLop2:
+			cmp r4, sp			;check if we printed all chars
+			beq endALp2
+			mov (sp)+, r0		
+			jsr pc, putChar		;print the char
+			br asciLop2			
+endALp2:	;return registers
+			mov (sp)+, r0
+			mov (sp)+, r1
+			mov (sp)+, r2
+			mov (sp)+, r3
+			mov (sp)+, r4
+			rts pc
 ;-------------------------------------------------------------------------------------
-; Function Name: bdCmdPrt (bad command print)
+; Function Name: chkHuMov ( Check Human Move command)
 ;
 ; Gets:
-; string in stack (the address of the first char in the string)
+; string in common area (InputBuf label)
 ; Returns:
-; Nothing
+; if move command is ok, return 1 in r0. if not - return 0 in r0 ( check command only)
 ; Operation:
-; print "Cannot execute ""+ input string +""" 
-
+; Validate the move command : if move is command ok, return 1 in r0. if not - return 0 in r0
 ;-------------------------------------------------------------------------------------
-bdCmdPrt:	
-			mov r0, -(sp)
-			mov #BadCmdEr, -(sp); print first part of error msg
-			jsr pc, writeLn
-			mov 6(sp), -(sp)	; print string
-			jsr pc, writeLn
-			add #4, sp			; pop
-			mov #'", r0
-			jsr pc, putChar		; print the " after the string
-			add #2, sp			; pop
-			mov (sp), r0
-			rts pc
-;end of bdCmdPrt
+badMvCmd:	
+			mov (sp)+, r3		
+			mov (sp)+, r2
+			mov (sp)+, r1
+			mov (sp)+, r0
 
-askFrCmd:	mov r0, -(sp)		;we will use r0
-			movb #DR, r0		
+			mov #printErr, (sp)
+			rts pc
+;-------------------------------------------------------------------------------------
+chkHuMov:	mov r0, -(sp)
+			mov r1, -(sp)
+			mov r2, -(sp)			
+			mov r3, -(sp)
+			clr r0					; return value will be in r0
+			mov #Move, -(sp)
+			mov #InputBuf, -(sp)	; put string in stack for strcmp
+			mov #5, r3
+			jsr pc, strCmp
+			add #4, sp				; pop
+			cmp r3, #0
+			beq badMvCmd			; invalid move command : doesnt start with "move "
+			mov #InputBuf, r1
+			mov #1, r2				; counter for arguments we check for "move"
+			add #5, r1				;now r1 points to the 6th letter in the input command	
+			mov #0, r3				;innit r3 , will caluculate srcPos
+posChk:		;check first non-space char: if is a digit
+			jsr pc, clrSpace		;move r1 on the string, to point to the next char which isnt space
+			cmpb (r1), #'0 			;check if char is <"0"
+			blt badMvCmd			;go to: badMvCmd (incorrect start command)
+			cmpb (r1), #'9 			;check if char is >"9"
+			bgt badMvCmd			;go to: badMvCmd (incorrect start command)
+			movb (r1)+, r3 
+			sub #'0, r3
+			mul #8., r3			;r3= r3*8
+			cmpb (r1), #'0 			;check if next char is <"0"
+			blt badMvCmd			;go to: badMvCmd (incorrect start command)
+			cmpb (r1), #'9 			;check if next char is  >"9"
+			bgt badMvCmd			;go to: badMvCmd (incorrect start command)
+			movb (r1)+, r0
+			sub #'0, r0
+			add r0, r3				; r3 contain now the index we just calculated in posChk
+			cmp r2, #0				; r2 value is aflag that checks if the index in r3 is meant for srcPos/dstPos
+			bgt putSrc
+
+			mov r3, dstPos
+
+			;check now : src&dst in range
+			mov srcPos, r3
+			cmp #77, r3
+			blt badMvCmd
+			cmp #0, r3
+			bgt badMvCmd
+			cmp r3, dstPos
+			beq .+10			; if we check dstPos and srcPos, skip 3 lines forward
+			mov dstPos, r3
+			br .-26					; if we didnt check dstPos, go back 7 lines back
+			
+			
+			
+			mov srcPos, r2			; r2 will save the square address of the index in srcPos
+			asl r2			
+			add #Board, r2
+		;	asl r3
+		;	add #Board, r3			; r3 will save the square address of the index in dstPos
+			cmp (r2), CrPlrCol		; check if r2 contain the player we want to move(that its his turn)
+			bne badMvCmd
+		;	cmp #0, (r3)			; check that destination square is empty
+		;	bne badMvCmd
+			; now, we will check if the move is valid.
+			mov #0, -(sp)			;	output from fndNxtMv: left step dest
+			mov #0, -(sp)			;	output from fndNxtMv: right step dest
+			mov #0, -(sp)			;	output from fndNxtMv: left eat dest
+			mov #0, -(sp)			;	output from fndNxtMv: right eat dest
+			mov #Board, -(sp)		;	push board for fndNxtMv
+			mov CrPlrCol, r1		; 	player value for fndNxtMv
+			mov srcPos, r2			; 	put src index in r2 for fndNxtMv
+			jsr pc, fndNxtMv
+			cmp 2(sp), dstPos		; comapre dst with : right skip output	
+			beq movValid			; make the move
+			cmp 4(sp), dstPos		; comapre dst with : left skip output		
+			beq movValid			
+			cmp 6(sp), dstPos		; comapre dst with : right step output
+			beq movValid
+			cmp 10(sp), dstPos		; comapre dst with : left step output
+			beq movValid	
+			add #12, sp				; pop board + 4 outputs
+			br badMvCmd
+putSrc:		
+			mov r3, srcPos
+			sub #1, r2
+			cmpb (r1), #SC		;if current letter is " "(space)
+			bne badMvCmd
+			clr r3
+			clr r0
+			jmp posChk			
+			
+movValid:	add #12, sp				; pop board + 4 outputs
+			mov (sp)+, r0		
+			mov (sp)+, r3		
+			mov (sp)+, r2
+			mov (sp)+, r1
+			mov #makeMove, (sp)
+			rts pc
+		
+			;-----------------NEW FUCTION Make Move!(makeMov)-----------------------------------
+			;TODO: stop clock
+			;		
+makeMove:	mov #Board, -(sp)
+			mov srcPos, mvSrc
+			mov dstPos, mvDst
+			jsr r5, movPiece
+mvSrc:		.word 0	
+mvDst:		.word 0	
+			tst (sp)+				; pop board
+			cmp CrPlayer, #BlackPlr	;check current player
+			beq .+80				;go to "mov #Black, -(sp)"
+			mov #White, -(sp)
+			jsr pc, writeNLn 		;print "White "
+			cmp WhitePlr, #1		;if white is human
+			bne .+16 				;skip to "mov #Computer, -(sp)"
+			mov #Human, (sp)
+			jsr pc, writeNLn 		;print "Human"
+			tst (sp)+
+			br .+14					;skip to "mov #BlackPlr, r0"
+			mov #Computer, (sp)
+			jsr pc, writeNLn 		;print "Computer"
+			tst (sp)+
+			mov #BlackPlr, r0
+			add #2, r0
+			mov #BlackPlr, CrPlayer ;move turn to the other player(to black)
+			mov (r0), TurnTime
+			mov #2, CrPlrCol
+			br .+66					;go to "mov #MovTime1, -(sp)"
+			mov #Black, -(sp)
+			jsr pc, writeNLn 		;print "Black "
+			cmp BlackPlr, #1		;if black is human
+			bne .+16 				;skip to "mov #Computer, -(sp)"
+			mov #Human, (sp)
+			jsr pc, writeNLn 		;print "Human"
+			tst (sp)+
+			br .+14 				;skip to "mov #WhitePlr, r0"
+			mov #Computer, (sp)
+			jsr pc, writeNLn 		;print "Computer"
+			tst (sp)+
+			mov #WhitePlr, r0
+			add #2, r0
+			mov #WhitePlr, CrPlayer ;move turn to the other player(to white)
+			mov (r0), TurnTime
+			mov #1, CrPlrCol
+			mov #MovTime1, -(sp)
+			jsr pc, writeNLn		;print " move took "
+			;TODO: print time!(double number.x)
+			mov #MovTime2, (sp)
+			jsr pc, writeNLn 		;print " seconds."
+			tst (sp)+
+			jsr pc, prtBoard
+			;TODO: check win!
+			mov #askFrCmd, (sp)
+			rts pc
+
+		
+
+
+prntAsk:	mov r0, -(sp)		;we will use r0
+			jsr pc, newLine
+			movb #'$, r0		
 			jsr pc, putChar		;print $
 			movb #SC, r0
 			jsr pc, putChar		;print " "(space)
 			mov (sp)+, r0		
 			rts pc
 
+clock:		mov r0, -(sp)
+			add #1, @#Aclock
+			cmp @#Aclock, rate 		;every (rate) times, we count 1 secound
+			beq secPass
+			cmp @#Sclock, TurnTime	;check if time out.
+			bne	endClock
+			movb #0, @#cls
+			cmp @CrPlayer, #1		;check if player turn or comp turn
+			bne	.+16				;if curr player is computer
+			mov #TimeOut1, -(sp)
+			jsr pc, writeLn
+			tst (sp)+
+			br .+14
+			mov #TimeOut2, -(sp)
+			jsr pc, writeLn
+			tst (sp)+
+			br endClock
+secPass:	clrb @#Aclock
+			add #1, @#Sclock
+			mov Sclock, -(sp)	;push seconds
+			jsr pc, prtAscii 	;print seconds
+			tst (sp)+
+endClock:	mov (sp)+, r0
+			rti
+
 prtBoard:	mov r0, -(sp)		;iterator of rows
 			mov r1, -(sp)		;r1 iterator of columns
 			mov r2, -(sp)		;r2 will hold print string(row)
 			mov r3, -(sp)		;r3 will hold Board address
+			jsr pc, newLine		;new line
+			mov #PrtBorMs, -(sp)	
+			jsr pc, writeLn 	;print "Board layout:"
+			tst (sp)+
 			mov #Board, r3
 			mov #8., r0			;iterator for rows
 loopRow:	mov #8., r1			;iterator for columns
@@ -140,7 +484,7 @@ loopCol:	cmp (r3), #1
 			beq pwnWhite
 			cmp (r3), #2
 			beq pwnBlack
-			movb #US, (r2)+		;add "_"
+			movb #'_, (r2)+		;add "_"
 			tst (r3)+
 			sob r1, loopCol		;next column
 colConti:	movb #0, (r2)+ 		; add '\0'
@@ -153,17 +497,17 @@ colConti:	movb #0, (r2)+ 		; add '\0'
 			mov (sp)+, r1
 			mov (sp)+, r0
 			rts pc
-pwnWhite:	movb #W, (r2)+		;add "W"
+pwnWhite:	movb #'W, (r2)+		;add "W"
 			tst (r3)+
 			sob r1, loopCol		;next column
 			br colConti
-pwnBlack: 	movb #B, (r2)+		;add "B"
+pwnBlack: 	movb #'B, (r2)+		;add "B"
 			tst (r3)+
 			sob r1, loopCol		;next column
 			br colConti
 
 ;-------------------------------------------------------------------------------------
-; Function Name: WriteLn
+; Function Name: writeLn and writeNLn
 ;
 ; Gets:
 ; address of string in stack by refrence
@@ -187,6 +531,21 @@ endWrite:
 			jsr pc, newLine
 			mov (sp)+, r0
 			rts pc		
+;No new line
+writeNLn:	mov r0, -(sp)
+			mov 4(sp), r0
+
+writNLop:
+			tstb (r0) 
+			beq endWritN
+waitNLop: 	tstb @#tps
+			bpl waitNLop
+			movb (r0)+, @#tpb
+			br writNLop
+
+endWritN:
+			mov (sp)+, r0
+			rts pc	
 
 ;-------------------------------------------------------------------------------------
 ; Function Name: putChar
@@ -222,30 +581,16 @@ newLine:
 ; Function Name: readLn
 ; Gets: Allocated array by address using stack
 ; Returns: Nothings
-; Operation: Reads data from the keyboard and put it to the array till it reachs CR
+; Operation: Reads data from the keyboard and put it to the array till itreachs CR
 ;-------------------------------------------------------------------------------------
-readLn:
-			mov r0,-(sp) 	; push r0
-			mov r1,-(sp) 	; push r1
-			mov 6(sp), r1 	; address for the string
-echo:
-			mov #101, @#tks ; enable keyboard read
-			wait 			;wait for keyboard interupt
-			br echo 		;if not end-loop again
-
-endRead:	
-			movb #0, (r1)+ 	; add '\0'
-			mov (sp)+,r1 	; pop r1
-			mov (sp)+,r0 	; pop r0
-			rts pc
 
 getChar:  
-loop1:
-			tstb @#tps		; test ready bit
+			mov r0,-(sp) 	; push r0
+loop1:		tstb @#tps		; test ready bit
 			bpl loop1		; repeat if not ready
 			movb @#tkb, r0	
-			cmpb r0, #CR	; if (CurrentKey == '\n') goto endRead
-			beq endGtCh
+			cmpb r0, #CR	;if (CurrentKey == '\n') goto endRead
+			beq endOfTxt
 			cmpb r0, #BS	;if CurrentKey== backspace
 			bne normEcho
 			jsr pc, putChar	;print <--(backspace)
@@ -253,33 +598,54 @@ loop1:
 			jsr pc, putChar	;print " "(space)
 			mov #BS, r0
 			jsr pc, putChar	;print <--(backspace)
-			br goNorm
-normEcho:	movb r0, @#tpb	; echo
-goNorm:		movb r0, (r1)+ 	; put the CurrentKey in the array
+			movb #0, (r1) 	;add '\0'
+			tstb -(r1)		;go one letter back
+			br endGetCh
+normEcho:	movb r0, @#tpb	;echo
+			movb r0, (r1)+ 	; put the CurrentKey in the array
+			br endGetCh
+endOfTxt:	movb #0, (r1)+ 	; add '\0'
+			mov #InputBuf, r1	
+			mov (sp)+, r0 	; pop r0
+			mov #chkCmd, (sp)	;go to check the new command
 			rti
-endGtCh:	add #2, (sp)	;add 2 to the return address (skip "br echo")
+endGetCh: 	mov (sp)+, r0 	; pop r0
+			mov #101, @#tks
 			rti
-
-
-
 
 Aclock:		.word 0
 Sclock:		.word 0
-GameRuns: 	.blkw 0 	;if game is running
+GameRuns: 	.word 0 	;1 if game run || 0 if game off
 BrdPrntd:	.blkw 0 	;if board still wasn't printed in last turn.(0- when he was)
-crPlayer:	.word 0		;player number(this turn)
-Winnter:	.blkw 0		;if there is winner
+CrPlayer:	.word 0		;adress: #WhitePlr or #BlackPlr
+CrPlrCol:	.word 0 	;value: 1 for white 2 for black
+Winner:		.blkw 0		;if there is winner
+
 MaskKey= 177600
 InputBuf: .blkw 26.
 RowPrint: .blkw 9. 
 	.even
-Welcome: .ascii<Welcome to 205724651 and 312238736 checkers game!\n\r\0> 
+Welcome: .ascii<Welcome to 205724651 and 312238736 checkers game!\0> 
 	.even
-StartNw: .ascii<Starting a new game\n\r>
-	.even
-UserIn: .ascii<$ >
-	.even
-Start: .ascii<start \0>
+StartMs1: .ascii<Starting a new game\0>
+.even
+StartMs2: .ascii<White player is \0>
+.even
+StartMs3: .ascii<Black player is \0>
+.even
+StartMs4: .ascii< with \0>
+.even
+StartMs5: .ascii< seconds per move\0>
+.even
+Human: .ascii<Human\0>
+.even
+Computer: .ascii<Computer\0>
+.even
+White: .ascii<White \0>
+.even
+Black: .ascii<Black \0>
+.even
+StartCmp: .ascii<start \0>
 	.even
 Stop: .ascii<stop \0>
 	.even
@@ -287,9 +653,29 @@ Move: .ascii<move \0>
 	.even
 Time: .ascii<time \0>
 	.even
-BadCmdEr: .ascii<Cannot execute "\n\r\0> 
-	.even
-
+ErorMsg1: .ascii<Cannot execute "\0>
+.even
+ErorMsg2: .ascii<" .\0>
+.even
+PrtBorMs: .ascii<Board layout:\0>
+.even
+MovTime1: .ascii< move took \0>
+.even
+MovTime2: .ascii< seconds.\0>
+.even
+TimeOut1: .ascii<Human is out of time. Game Over.\0>
+.even
+TimeOut2: .ascii<Computer time over- need to make move.\0>
+.even
+srcPos: .word 0
+dstPos: .word 0
+Player: .word 0
+Steps: .word 1
+TurnTime: .word 0
+WhitePlr: 	.word 0			;1 means human || 0 means computer
+WhiteTim:	.word 0			;
+BlackPlr:	.word 0			;1 means human || 0 means computer
+BlackTim:	.word 0			;
 Board:	.word	0, 2, 0, 2, 0, 2, 0, 2
 		.word	2, 0, 2, 0, 2, 0, 2, 0
 		.word	0, 2, 0, 2, 0, 2, 0, 2
@@ -298,3 +684,965 @@ Board:	.word	0, 2, 0, 2, 0, 2, 0, 2
 		.word	1, 0, 1, 0, 1, 0, 1, 0
 		.word	0, 1, 0, 1, 0, 1, 0, 1
 		.word	1, 0, 1, 0, 1, 0, 1, 0
+
+	.	=	torg +20000	
+rate:		.word	2050.
+
+;----------------------------------------------------------------------------
+getMaxWP:	mov #0, -(sp)		; output place in stack(by value) of the pawn who needs to move(src)
+			mov #0, -(sp)		; output place in stack(by value) of the dest place the pawn needs to move to
+			mov #0, -(sp)		; out of the WP value output
+			mov #Board, -(sp)	; current board
+			mov Player, -(sp)   	; player number
+			mov Steps, -(sp)		;number of steps
+			jsr pc, getMxAux
+			add #6, sp			;pop 3(step, player, board)
+			mov (sp), @10(sp)
+			mov 2(sp), @12(sp)
+			mov 4(sp), @14(sp)
+			add #6, sp
+			rts pc
+getMxAux:	mov r0, -(sp)		;use is changing. for calculatings
+			mov r1, -(sp)		;used for Current Player
+			mov r2, -(sp)		;output from our subrotines like: fndNxtMv(src)
+			mov r3, -(sp)		;output from our subrotines like: fndNxtMv(dest), fndPlPwn, 
+			mov r4, -(sp)		;output from subrotines like :calcWP and minOrMax.
+			;---------if node represent game over OR node is on depth of steps given----------
+			mov #0, -(sp)			;	push output word for checkWin subroutine
+			mov 22(sp), -(sp)		;	push Board for checkWin subroutine(address)
+			mov 22(sp), r1			;	r1 is current Player now
+			mov Player, -(sp)			;	push Player for checkWin subrotine
+			jsr pc, checkWin
+			add #4, sp				;	pop 2 times
+			mov (sp)+, r0			;	r0 gets the output from checkWin subrotine, [stack balanced]
+			cmp r0, #1				;	if r0==1 
+			beq plyrWon
+			;check lose now
+			mov #0, -(sp)			;	push output word for checkWin subrotine
+			mov 22(sp), -(sp)		;	push Board for checkWin subrotine(address)
+			mov #3, -(sp)			;	push Player for checkWin subrotine
+			sub Player, (sp)
+			jsr pc, checkWin
+			add #4, sp				;	pop 2 times
+			mov (sp)+, r0			;	r0 gets the output from checkWin subrotine, [stack balanced]
+			cmp r0, #1				;	if r0==1 
+			beq enmyWon
+			br chkDepth
+
+plyrWon:	mov #20, 22(sp)			;	update output WP to 20
+			clr r3					;	r3 is output from fndPlPwn subrotine
+			mov 20(sp), -(sp)		;	push Board for fndPlPwn subrotine
+			mov 20(sp), -(sp)		;	push Player for fndPlPwn subrotine
+			jsr pc, fndPlPwn
+			add #4, sp				;	pop 2 times, [stack balanced]
+			mov r3, 24(sp)			;	output dest is r3
+			mov r3, 26(sp)			;	output src is r3
+			br endMaxWP
+enmyWon:	mov #177760, 22(sp)			;update output WP to 20
+			mov 20(sp), -(sp)		;push Board for fndPlPwn subrotine
+			mov 20(sp), -(sp)		;push Player for fndPlPwn subrotine
+			jsr pc, fndPlPwn
+			add #4, sp				;pop2 times, [stack balanced]
+			mov r3, 24(sp)			;output dest is r3
+			mov r3, 26(sp)			;output src is r3
+			br endMaxWP
+			;---------check if node is on depth of steps given----------
+chkDepth:	cmp 14(sp), #0			;check if steps=0
+			bne partBC
+DpthZero:	mov 20(sp), -(sp)		;push Board for calcWP subrotine
+			mov Player, -(sp)			;push Player for calcWP subrotine
+			jsr pc, calcWP			;output will be in r4
+			jsr pc, fndPlPwn
+			add #4, sp				;pop 2 times, [stack balanced]
+			mov r4, 22(sp)			;put r4(WP from calcWP) into output WP
+			mov r3, 24(sp)			;output dest is r3
+			mov r3, 26(sp)			;output src is r3
+			br endMaxWP
+
+			;----------end of part A !!(the stop conditions), now we move to part B(max) and C(min)----------
+partBC:		mov r1, -(sp)			;push Player for minOrMax subrotine
+			mov #Player, -(sp)		;push original player address for minOrMax subrotine
+			jsr pc, minOrMax
+			add #4, sp				;pop 2 times, [stack balanced]
+			mov #0, -(sp)			;push for output from numMoves subrotine
+			mov 22(sp), -(sp)		;push Board for numMoves subrotine
+			mov r1, -(sp)			;push Player for numMoves subrotine
+			jsr pc, numMoves
+			add #4, sp				;pop 2 times
+			mov #0, -(sp)			;output from fndNxtMv: left step dest
+			mov #0, -(sp)			;output from fndNxtMv: right step dest
+			mov #0, -(sp)			;output from fndNxtMv: left eat dest
+			mov #0, -(sp)			;output from fndNxtMv: right eat dest
+			cmp r4, #1				;if r4==1 it means we want max; r4 is output from minOrMax
+			beq maxTurn
+			cmp r4, #177777			;if r4==(-1) it means we want min; r4 is output from minOrMax
+			beq minTurnJ
+endMaxWP:	mov (sp)+, r4			; end getMxAux subroutine
+			mov (sp)+, r3
+			mov (sp)+, r2
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc
+
+minTurnJ:	jmp minTurn
+
+maxTurn:	mov #177750, r0			;the lowest value possible
+			mov #0, r2				; innitilize r2 to the first index in the board.
+			cmp 10(sp), #0
+			bne loopMax
+			mov #Board, -(sp)		;push Board for fndPlPwn subrotine
+			mov r1, -(sp)			;push Player for fndPlPwn subrotine
+			jsr pc, fndPlPwn		;now r3 contains random pawn we found
+			add #4, sp				;pop 2
+			mov r3, r2				;now r2=r3 and src=dest
+			add #1, 10(sp) 			;add one to numMovs(rec will sub it)
+			br rcGtMxWP
+loopMax:	cmp 10(sp), #0			;if number of moves left=0
+			beq endLpMx				;end the loop								;
+			mov 32(sp), -(sp)		; push board
+			;mov r1, -(sp)			; push player number
+			jsr pc, fndNxtMv		;now the src is in r2
+			tst (sp)+				;
+			br fstOptMx				;go check all options for dests to check
+rcGtMxWP:	sub #1, 10(sp)			; -1 from numMoves
+			;~push outputs
+			mov #0, -(sp)			;push for src output from getMxAux
+			mov #0, -(sp)			;push for dest output from getMxAux
+			mov #0, -(sp)			;push for WP output from getMxAux	
+			;~push new board		
+			mov 40(sp), -(sp)		;push Board for movPiece subrotine 
+			mov r2, srcMx			
+			mov r3, destMx
+			jsr r5, movPiece
+srcMx:		.word 0	
+destMx:		.word 0	
+			;~push advarsery
+			mov #3, -(sp)			;push 3 to stack
+			sub r1, (sp)			; Player in stack for Rec getMxAux is adversary(3-curr player)
+			;~push new steps
+			mov 40(sp), -(sp)		;push steps
+			sub #1, (sp)			;update steps to (steps-1)			
+			jsr pc, getMxAux		;
+			
+			add #4, sp				;pop 2 ( steps _ adversery_  )
+			mov r3, srcMxBk			; bring the board back to the state before the move
+			mov r2, destMxBk
+			jsr r5, movPiece
+srcMxBk:	.word 0	
+destMxBk:	.word 0	
+			tst (sp)+				;pop board
+			cmp (sp), r0			;compare WP returned with r0(max)
+			bgt stNewMax			;if the new WP is bigger then max WP until now, set it to be the MAX WP
+			add #6, sp				;pop 3 
+			br fstOptMx				;if not, continue	
+stNewMax:	mov (sp), r0			;set the new WP to be the max
+			mov r0, 42(sp)
+			mov r3, 44(sp)			;also update getMxAux outputs(dest)
+			mov r2, 46(sp)			;also update getMxAux outputs(src)
+			add #6, sp				;pop 3 
+fstOptMx:	tst (sp)				;check if move is vaild						
+			beq secOptMx			;if not, check next moves
+			mov (sp), r3			;insert first dest index to r3
+			mov #0, (sp)
+			br rcGtMxWP	
+secOptMx:	tst 2(sp)				;check if move is vaild
+			beq thrOptMx			;if not, check next moves
+			mov 2(sp), r3			;insert first dest index to r3
+			mov #0, 2(sp)
+			br rcGtMxWP
+thrOptMx:	tst 4(sp)				;check if move is vaild
+			beq frtOptMx			;if not, check next moves
+			mov 4(sp), r3			;insert first dest index to r3
+			mov #0, 4(sp)
+			br rcGtMxWP
+frtOptMx:	tst 6(sp)				;check if move is vaild
+			beq nxtIndMx				;if not, check next src (loop)
+			mov 6(sp), r3			;insert first dest index to r3
+			mov #0, 6(sp)
+			br rcGtMxWP
+nxtIndMx:	add #1, r2				; r2 is the next index now
+			br loopMax
+endLpMx:	
+			add #12, sp
+			jmp endMaxWP
+minTurn:	
+			mov #30, r0			;the lowest value possible
+			mov #0, r2				; innitilize r2 to the first index in the board.
+			cmp 10(sp), #0
+			bne loopMin
+			mov #Board, -(sp)		;push Board for fndPlPwn subrotine
+			mov r1, -(sp)		;push Player for fndPlPwn subrotine
+			jsr pc, fndPlPwn		;now r3 contains random pawn we found
+			add #4, sp				;pop 2
+			mov r3, r2				;now r2=r3 and src=dest
+			add #1, 10(sp) 			;add one to numMovs(rec will sub it)
+			br rcGtMnWP
+loopMin:	cmp 10(sp), #0			;if number of moves left=0
+			beq endLpMn				;end the loop
+			mov 32(sp), -(sp)			; push board
+			jsr pc, fndNxtMv		;now the src is in r2
+			tst (sp)+				; pop board
+			br fstOptMn				;go check all options for dests to check
+rcGtMnWP:	sub #1, 10(sp)			; -1 from numMoves
+			;~push outputs
+			mov #0, -(sp)			;push for src output from getMxAux
+			mov #0, -(sp)			;push for dest output from getMxAux
+			mov #0, -(sp)			;push for WP output from getMxAux	
+			;~push new board		
+			mov 40(sp), -(sp)		;push Board for movPiece subrotine
+			mov r2, srcMn			
+			mov r3, destMn
+			jsr r5, movPiece
+srcMn:		.word 0	
+destMn:		.word 0	
+			;~push adversery
+			mov #3, -(sp)			;push 3 to stack
+			sub r1, (sp)			; Player in stack for Rec getMxAux is adversary(3-curr player)
+			;~push new steps
+			mov 40(sp), -(sp)		;push steps
+			sub #1, (sp)			;update steps to (steps-1)
+			jsr pc, getMxAux		; recursive call for getMxAux with the updated Board(after the move we found is done)
+			add #4, sp				;pop 2
+			mov r3, srcMnBk			;now, we will bring the board back to the state before the move
+			mov r2, destMnBk
+			jsr r5, movPiece
+srcMnBk:		.word 0	
+destMnBk:		.word 0	
+			tst (sp)+
+			cmp r0, (sp)			;compare WP returned with r0(max)
+			bgt stNewMin			;if the new WP is smaller then min WP until now, set it to be the new MIN WP
+			add #6, sp				;pop 3 
+			br fstOptMn				;if not, continue
+stNewMin:	mov (sp), r0			;set the new WP to be the min
+			mov r0, 42(sp)
+			mov r3, 44(sp)			;also update getMinWP outputs(dest)
+			mov r2, 46(sp)			;also update getMinWP outputs(src)
+			add #6, sp				;pop 3 
+
+fstOptMn:	tst (sp)				;check if move is vaild
+			beq secOptMn			;if not, check next moves
+			mov (sp), r3			;insert first dest to r3
+			mov #0, (sp)
+			br rcGtMnWP
+secOptMn:	tst 2(sp)				;check if move is vaild
+			beq thrOptMn			;if not, check next moves
+			mov 2(sp), r3			;insert first dest to r3
+			mov #0, 2(sp)
+			br rcGtMnWP
+thrOptMn:	tst 4(sp)				;check if move is vaild
+			beq frtOptMn			;if not, check next moves
+			mov 4(sp), r3			;insert first dest to r3
+			mov #0, 4(sp)
+			br rcGtMnWP
+frtOptMn:	tst 6(sp)				;check if move is vaild
+			beq nxtIndMn			;if not, subtitue -1 from numMoves and go back to the loop
+			mov 6(sp), r3			;insert first dest to r3
+			mov #0, 6(sp)
+			br rcGtMnWP
+nxtIndMn:	add #1, r2				; r2 is the next index now
+			br loopMin
+endLpMn:	
+			add #12, sp
+			jmp endMaxWP
+;END OF getMxAux Subroutine
+
+fndPlPwn:	;for gameover we need one pawn from a player, to return src=dest. so this subroutine 
+			;search for a pawn and return its index.
+			;in stack- 2 inputs: Board(address), Player(value)
+			;output in r3(index between 0 to 63 in decimal)
+; -----------------  push the registers we use to the stack: -----------------  
+			mov r0, -(sp)
+			mov r1, -(sp)
+			
+			;-----
+			mov 10(sp), r0 		; contain the first square
+			mov #64., r1 		; loop will go on 64 times(squares) or untill we find a pawn
+chkSqre:	cmp (r0), 6(sp)
+			beq retPawn
+			add #2, r0			; point to the next square
+			sob r1, chkSqre		; 
+retPawn:	sub 10(sp), r0
+			asr r0
+			mov r0, r3			; save output in r3 ( index between 0-63)
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc
+;END OF fndPlPwn Subroutine
+
+fndNxtMv:	cmp r1, #2				; check what player we check for
+			beq bkFndNxt
+			jmp wtFndNxt
+;bkFndNxt STACK:								__________________________________;
+
+																;	linking register
+																;	Board						
+																;	right skip output						
+																;	left skip output						
+																;	right step output
+																;	left step output
+																;______________________________________
+			; checks valid moves for the next black player's pawn found.
+bkFndNxt:	;in stack- 4 dest outputs: left step, right step, left eat, right eat
+			;in stack- 1 input: Board
+			;r2 contain the square index we check from.(input between 0-63 in decimal)
+			;2 local words(flags) are used here: RFlagB and LFlagB.
+; -----------------  push the registers we use to the stack: -----------------  
+			mov r0, -(sp)
+			mov r1, -(sp)			
+			mov r3, -(sp)		;	r3 - save the adress of the square we check . r2- save the index(0-63)
+								;   save the maximum num of squares we have to check
+			mov r4, -(sp)		
+			mov r5, -(sp)
+; -----------------  innitilization -----------------  
+			mov #56., r4			;	r4 will contain the maximum squares we will have to go(for loop control)	
+			sub r2, r4
+			mov r2, r3			;	innit r3 to square address:
+			asl r3				;	multiply index by 2
+			add 14(sp), r3		; 	add board adress : now r3 is the adress of the square r2 was index of.
+; -----------------  lopp that checks if its a black pawn square: -----------------  
+chkIfBlk:	cmp (r3), #2
+			beq mrgChkB 			; its a black pawn square- so check if its a  margin square now
+			; if not, go to the next square:
+bGoToNxt:	add #2, r3			; next square address
+			add #1, r2			; next square index
+			sob r4, chkIfBlk
+			jmp bEnd
+; -----------------  margin check: -----------------  
+mrgChkB:	mov r2, r1 			;	copy the current square index(will be used to check if its a margin square).
+			clr r0
+			div #8, r0
+			cmp r1, #0
+			beq bLftMrg
+			cmp r1, #7
+			beq bRgtMrg
+			br BlkSqre
+; -----------------  we are on the leftest column. so no skip\move left: -----------------  
+bLftMrg:	mov #0, 20(sp)
+			mov #0,	24(sp)
+			mov #1, LFlagB
+			br BlkSqre
+; -----------------  we are on the rightest column. so no skip\move right: -----------------  
+bRgtMrg:	mov #0, 22(sp)
+			mov #0,	16(sp)
+			mov #1, RFlagB
+			br BlkSqre
+; -----------------  main check of the pawn square: -----------------  
+BlkSqre:	cmp RFlagB, #1			; checks if we checked right move\skip possibillity
+			bne bRgtChk
+			cmp LFlagB, #1			; checks if we checked left move\skip possibillity
+			bne bLftChk
+			mov #0,	RFlagB			; innitialize flags for next check
+			mov #0, LFlagB
+			br 	chkBMovs				; we checked all the possible moves to the pawn we found: so check if there were moves
+; -----------------  right moves check: -----------------  
+bRgtChk:	mov r3, r5
+			add #22, r5
+			cmp (r5), #1					; checks whats in down&right square
+			blt bMovRgt 					; we found an empty square, so move Right is Valid(and skip is not)
+			beq bRgtSkip 					; we found a white pawn, so check fo a skip
+			; if we are here, so there is no move right \ skip right:
+bNoMovsR:	mov #0, 16(sp)
+			mov #0, 22(sp)
+			br chkRFlag
+bMovRgt:	sub 14(sp), r5
+			asr r5
+			mov r5,	22(sp)					; put output in stack : Move right adress
+			mov #0, 16(sp)					; skip right is not valid , so put 0
+			br chkRFlag
+chkRFlag:	mov #1, RFlagB
+			br BlkSqre
+bRgtSkip:	; here we check if we can skip. first, we check if we wont skip of-board of the right edge:
+			mov r2,r1
+			clr r0
+			div #8, r0
+			cmp r1, #6						; check if we are on the second column from the left
+			beq bNoMovsR					; if so  -  no skip
+			; now we will check if we are on the 7th line- means that we cant skip too:
+			cmp #47., r2
+			blt bNoMovsR					
+			add #22, r5						; go another time down&right
+			cmp (r5), #0					
+			beq skpRgtOk					; we found an empty square, so we can skip right
+			br bNoMovsR						; we cannot skip, so no moves right
+skpRgtOk:	sub 14(sp), r5
+			asr r5
+			mov r5, 16(sp)
+			mov #0,	22(sp)
+			br chkRFlag
+; -----------------  left moves check: -----------------  
+bLftChk:	mov r3, r5
+			add #16, r5
+			cmp (r5), #1					; checks whats in down&left square
+			blt movLftOk 					; we found an empty square, so move left is Valid(and skip is not)
+			beq bLftSkip 					; we found a white pawn, so check for a skip
+			; if we are here, so there is no move right \ skip right:
+bNoMovsL:	mov #0, 20(sp)
+			mov #0, 24(sp)
+			br chkLFlag
+movLftOk:	sub 14(sp), r5
+			asr r5
+			mov r5,	24(sp)					; put output in stack : Move left adress
+			mov #0, 20(sp)					; skip left is not valid , so put 0
+			br chkLFlag
+chkLFlag:	mov #1, LFlagB
+			br BlkSqre
+bLftSkip:	; here we check if we can skip. first, we check if we wont skip of the board edge:
+			mov r2,r1
+			clr r0
+			div #8, r0
+			cmp r1, #1						; check if we are on the second column from the left
+			beq bNoMovsL					; if so  -  no skip
+			; now we will check if we are on the 7th line- means that we cant skip too:
+			cmp #47., r2
+			blt bNoMovsL	
+			add #16, r5						; go another time down&left
+			cmp (r5), #0					
+			beq skpLftOk					; we found an empty square, so we can skip left
+			br bNoMovsL						; we cannot skip, so no moves right
+skpLftOk:	sub 14(sp), r5
+			asr r5
+			mov r5, 20(sp)
+			mov #0,	24(sp)
+			br chkLFlag		
+;  after we checked a black pawn square, we check if there were moves- if yes, finish subroutine. if not - go to next square:   
+chkBMovs:	cmp #0, 20(sp)
+			bne bEnd
+			cmp #0, 16(sp)
+			bne bEnd
+			cmp #0, 22(sp)
+			bne bEnd
+			cmp #0, 24(sp)
+			bne bEnd
+			jmp bGoToNxt						;	we didnt find any moves for the last pawn we checked, so go to the next square.
+bEnd:		; finish the subroutine
+			mov (sp)+, r5
+			mov (sp)+, r4
+			mov (sp)+, r3
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc	
+RFlagB:	.word 0		; "1" if we checked right skip&move, "0" otherwise
+LFlagB:	.word 0		; "1" if we checked left skip&move, "0" otherwise
+;END OF bkFndNxt Subroutine
+											;	wtFndNxt STACK: ______________________________________;
+																;	linking register							
+																;	Board						
+																;	right skip output						
+																;	left skip output						
+																;	right step output
+																;	left step output
+																;______________________________________
+		
+			;checks valid moves for the next white player's pawn found.
+wtFndNxt:	;in stack- 4 dest outputs: left step, right step, left eat, right eat
+			;in stack- 1 input: Board
+			;r2 contain the square index we check from.(input between 0-63 in decimal )
+			;2 local words(flags) are used here: RFlagWW and LFlagWW.
+; -----------------  push the registers we use to the stack: -----------------  
+			mov r0, -(sp)
+			mov r1, -(sp)			
+			mov r3, -(sp)		;	r3 - save the adress of the square we check . r2- save the index(0-63)
+								;   save the maximum num of squares we have to check
+			mov r4, -(sp)		
+			mov r5, -(sp)
+; -----------------  innitilization -----------------  
+			mov #64., r4			;	r4 will contain the maximum squares we will have to go(for loop control)
+			cmp #8, r2
+			ble conInnit		; skip next line if index is > 7
+			mov #8., r2			; if the index is between 0-7: make the index start from 8(second line).
+conInnit:	sub r2, r4
+			mov r2, r3			;	innit r3 to square address:
+			asl r3				;	multiply index by 2
+			add 14(sp), r3		; 	add board adress : now r3 is the adress of the square r2 was index of.
+			
+; -----------------  loop that checks if its a white pawn square: -----------------  
+chkIfWht:	cmp (r3), #1
+			beq mrgChkW 			; its a white pawn square- so check if its a  margin square now
+			; if not, go to the next square:
+wGoToNxt:	add #2, r3			; next square address
+			add #1, r2			; next square index
+			sob r4, chkIfWht	
+			jmp wEnd
+; -----------------  margin check: -----------------  
+mrgChkW:	mov r2, r1 			;	copy the current square index(will be used to check if its a margin square).
+			clr r0
+			div #8, r0
+			cmp r1, #0
+			beq wLftMrg
+			cmp r1, #7
+			beq wRgtMrg
+			br whtSqre
+; -----------------  we are on the leftest column. so no skip\move left: -----------------  
+
+wLftMrg:	mov #0, 20(sp)
+			mov #0,	24(sp)
+			mov #1, LFlagW
+			br whtSqre
+; -----------------  we are on the rightest column. so no skip\move right: -----------------  
+
+wRgtMrg:	mov #0, 22(sp)
+			mov #0,	16(sp)
+			mov #1, RFlagW
+			br whtSqre
+; -----------------  main check of the white pawn square: -----------------  
+whtSqre:	cmp RFlagW, #1			; checks if we checked right move\skip possibillity
+			bne wRgtChk
+			cmp LFlagW, #1			; checks if we checked left move\skip possibillity
+			bne wLftChk
+			mov #0,	RFlagW			; innitialize flags
+			mov #0, LFlagW
+			br chkWMovs			
+; -----------------  right moves check: -----------------  
+wRgtChk:	
+			mov r3, r5
+			sub #16, r5
+			cmp (r5), #1					; checks whats in up&right square
+			blt wMovRgt 					; we found an empty square, so move Right is Valid(and skip is not)
+			bgt wRgtSkip 					; we found a black pawn, so check for a skip
+			; if we are here, so there is no move right \ skip right:
+wNoMovsR:	mov #0, 16(sp)
+			mov #0, 22(sp)
+			br ckRFlagW
+wMovRgt:	sub 14(sp), r5
+			asr r5
+			mov r5,	22(sp)					; put output in stack : Move right adress
+			mov #0, 16(sp)					; skip right is not valid , so put 0
+			br ckRFlagW
+ckRFlagW:	mov #1, RFlagW
+			br whtSqre
+wRgtSkip:	; here we check if we can skip. first, we check if we wont skip of-board to the right edge:
+			mov r2,r1
+			clr r0
+			div #8, r0
+			cmp r1, #6						; check if we are on the second column from the left
+			beq wNoMovsR					; if so  -  no skip
+			; now we will check if we are on the 2th line- means that we cant skip too:
+			cmp #16., r2
+			bgt wNoMovsR	
+			sub #16, r5						; go another time up&right
+			cmp (r5), #0					
+			beq wSkpRtOk					; we found an empty square, so we can skip right
+			br wNoMovsR						; we cannot skip, so no moves right
+wSkpRtOk:	sub 14(sp), r5
+			asr r5
+			mov r5, 16(sp)
+			mov #0,	22(sp)
+			br ckRFlagW
+; -----------------  left moves check: -----------------  
+wLftChk:	
+			mov r3, r5
+			sub #22, r5
+			cmp (r5), #1					; checks whats in up&left square
+			blt wMovLft 					; we found an empty square, so move left is Valid(and skip is not)
+			bgt wLftSkip 					; we found a black pawn, so check for a skip
+			; if we are here, so there is no move right \ skip right:
+wNoMovsL:	mov #0, 20(sp)
+			mov #0, 24(sp)
+			br ckLFlagW
+wMovLft:	sub 14(sp), r5
+			asr r5
+			mov r5,	24(sp)					; put output in stack : Move left adress
+			mov #0, 20(sp)					; skip left is not valid , so put 0
+			br ckLFlagW
+ckLFlagW:	mov #1, LFlagW
+			br whtSqre
+wLftSkip:	; here we check if we can skip. first, we check if we wont skip of the left board edge:
+			mov r2,r1
+			clr r0
+			div #8, r0
+			cmp r1, #1						; check if we are on the second column from the left
+			beq wNoMovsL					; if so  -  no skip
+			; now we will check if we are on the 2th line- means that we cant skip too:
+			cmp #16., r2
+			bgt wNoMovsL					; if so  -  no skip
+			sub #22, r5						; go another time up&left
+			cmp (r5), #0					
+			beq wSkpLtOk					; we found an empty square, so we can skip left
+			br wNoMovsL						; we cannot skip, so no moves right
+wSkpLtOk:	sub 14(sp), r5
+			asr r5
+			mov r5, 20(sp)
+			mov #0,	24(sp)
+			br ckLFlagW		
+
+;  after we checked a white pawn square, we check if there were moves- if yes, finish subroutine. if not - go to next square:   
+chkWMovs:	cmp #0, 20(sp)
+			bne wEnd
+			cmp #0, 16(sp)
+			bne wEnd
+			cmp #0, 22(sp)
+			bne wEnd
+			cmp #0, 24(sp)
+			bne wEnd
+			jmp wGoToNxt						;	we didnt find any moves for the last pawn we checked, so go to the next square.
+wEnd:		; finish the subroutine
+			mov (sp)+, r5
+			mov (sp)+, r4
+			mov (sp)+, r3
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc	
+RFlagW:	.word 0		; "1" if we checked right skip&move, "0" otherwise
+LFlagW:	.word 0		; "1" if we checked left skip&move, "0" otherwise
+;END OF wtFndNxt Subroutine
+
+
+
+
+
+
+						;STACK__________________________________;calcWP:
+																;						
+																;		
+																;	
+																;	r2
+																;	r1
+																;	r0
+																;	linking register							
+																;	player we check for(by value)
+																;	current board address
+																;______________________________________
+;calcWP: calculate the WiningParameter for the player given. return the WP in r4.
+;		 Board address and player number given in the stack	(board by address, player number by value)
+;		*use cntPawn subroutine to count each of the player pawns*
+		 
+calcWP:	 
+; -----------------  push the registers we use to the stack: -----------------  
+			mov r0, -(sp)		
+			mov r1, -(sp)
+; -----------------  iniitilize registers values: ----------------- 
+			clr r4 				;	return value will be in r4
+			mov 6(sp), r0		; 	r0 save the current player number
+			mov #3, r1	
+			sub r0, r1			; 	r1 save the adversery number
+; -----------------  now we calculate the WP:	-----------------------  
+			;~~put the adversery number of pawns in r1~~
+			mov 10(sp), -(sp)	;	push board for cntPawn
+			mov r1, -(sp)		;	push the adversery number of pawns for cntPawn
+			jsr pc, cntPawn		;	output in r4 - number of pawns of adversery 
+			mov r1, r1
+			tst (sp)+			;	pop adversery 
+			mov r4, r1
+			;~~put the current player number of pawns in r4~~
+			mov r0, -(sp)		;	push player value for cntPawn
+			jsr pc, cntPawn		;	output in r4 - number of pawns of current player 
+			add #4, sp			;	pop
+			;~~calculate the WP for the current player and put it in r4: PlayerNumOfPawns-AdverseryNumOfPawns~~
+			sub r1, r4
+endCalcWP:	;~~~~~~  pop registers original data ~~~~~~
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc			;end function
+;END OF calcWP Subroutine
+
+; minOrMax :
+; inputs: current player in stack. address of the player we check for in stack.
+; outputs: return value is in r4: "1" if we need max and "-1" if min
+minOrMax:	
+			cmp @2(sp), 4(sp)
+			beq maxVal
+			mov #177777, r4	;r4 is outpur register
+			rts pc			;end function
+maxVal:		mov #1, r4		;r4 is output register
+			rts pc			;end function		
+;END OF minOrMax Subroutine	
+		
+; movPiece gets source and destination indexes on the board(between 0 to 63) and a Board to update
+; and move the piece in the source to the destination in the board given. Board address given in stack,
+; source and dest indexes given inline. ( movPiece works on both directions: so if we "eat" the
+; adversery pawn we can use movPiece to to bring the board to the state before the eat)		
+movPiece:	mov r2, -(sp) 		; r2 : save the player number
+			mov r0, -(sp)		; r0 : Source pos
+			mov r1, -(sp)		; Dst: Pos
+; -----------------  iniitilize registers values: -----------------  
+			mov (r5)+, r0		;	innit
+			mov (r5)+, r1		;	innit
+			cmp r0, r1			; edge case: src=dest.
+			beq	endMov			; end function - no need to change anything
+			asl r0				
+			asl r1
+			add 10(sp), r0		; 	the source square address is now at r0
+			add 10(sp), r1		;	the destination square address is now at r1
+			mov (r0), r2 		;	the player number is now inside r2
+; -----------------  move the player: ----------------------------- 
+			mov	r2, (r1)		;	put it's number on the destination square
+			mov #0, (r0)		;   clear the source-square			
+; -----------------  now, we check if was a skip : ----------------  
+			sub 10(sp), r0
+			sub 10(sp), r1
+			asr r0				
+			asr r1	
+			add r0, r1
+			clr r0
+			div #2, r0
+			cmp r1, #1
+			beq endMov		; check: if its an odd number, so there was'nt a skip
+			clr r0  		; r0 will be used to calculate the adversery number from now
+			mov #3, r0
+			sub	r2, r0		; r0 contain the adversery number now
+			mov -(r5), r2	; now, we will save source+dest positions in r2
+			add -(r5), r2
+			tst (r5)+		; set back the linking register
+			tst (r5)+		; ,,  ,,   ,,  ,,  	   ,,
+			; now, we know that  there was a skip :
+			add 10(sp), r2
+			cmp (r2), #0	; check if we "eat" a pawn or we are setting the board back
+			beq putAdver 	; the square is emty, means that we need to put the adversery back
+			mov #0, (r2)	; the square wasnt empty, so we put "0" in it (means that we "ate" the adversery pawn)
+			br endMov	
+putAdver:	mov r0, (r2) 	 
+endMov:		
+			mov (sp)+, r1
+			mov (sp)+, r0
+			mov (sp)+, r2
+			rts r5
+;END OF movPiece Subroutine
+
+;checkWin check for the player given if he won or not (by the state of the board. 
+;output is in stack, and after it there are 2 inputs: Board address and player value.
+;checkWin use 2 subrotines: cntPawn and numMoves.
+checkWin:	mov r0, -(sp)	; push registers to stack:
+			mov r1, -(sp)
+			mov r4, -(sp)
+; -----------------  iniitilize registers values: ---------------------------------------------------  
+			mov 8(sp), r0	; contain the current player
+			mov #3, r1		; adversery number
+			sub r0, r1
+;------------------- using cntPawn subroutine to count each player pawns:-------------------------------
+			mov 12(sp), -(sp)	; put board in stack
+			mov r0, -(sp)		; put curr player on stack
+			jsr pc, cntPawn		; output in r4
+			mov r4, r0 			; r0 contain now the number of pawns of the current player
+			mov r1, (sp)		; replace the player we count : put the adversery in stack in current player place
+			jsr pc, cntPawn
+			mov r4, r1			; r1 contain now the number of pawns of the adversery
+			add #4, sp			; innit stack after cntPawn
+						
+;------------------- check if adversery has no pawns on board :-------------------------------
+			cmp r1, #0
+			beq retWin			; adversery has no pawns on board - return a win
+			sub r1, r0
+			cmp r0, #0			; check if the current player have more pawns than the adversery
+			bgt chkMoves		; if so - check if they both got no moves
+retNoWin:	mov #177777, 14(sp)	; return -1 : not a win
+			
+endChkWn:	mov (sp)+, r4			
+			mov (sp)+, r1	
+			mov (sp)+, r0	
+			rts pc
+chkMoves:	clr r0				; will now save numMoves of the current player
+			clr r1				; will now save numMoves of the adversery
+			mov #0, -(sp)		; for return value from numMoves
+			mov 14(sp), -(sp)	; put board address in stack for numMoves 
+			mov 14(sp), -(sp)   ; put player number value in stack for numMoves
+			jsr pc, numMoves
+			mov 4(sp), r0		; save numMoves of the current player in r0
+			cmp r0, #0
+			bne noWin			; the current player has more moves - so not a win
+			mov (sp), r1
+			mov #3, (sp)		; now we will replace the player we check his numMoves : we send the adversery to numMoves
+			sub r1, (sp) 		; the stack contain the adversery number on top now
+			jsr pc, numMoves
+			mov 4(sp), r1 		; save numMoves of the adversery in r1
+			cmp r1, #0			
+			bne noWin			; the adversery player has more moves - so not a win
+			add #6, sp
+retWin:		mov #1, 14(sp) 		; put 1 as the return value - Its a Win !
+			br endChkWn
+noWin:		add #6, sp			; pop , and end subroutine(no win)
+			br retNoWin
+;END OF checkWin Subroutine	
+
+
+;--------------------------------------------------Subroutine: numMoves----------------------------------------------------
+; return value in stack. Gets board address as parameter and a player number (by value).
+; return the number of moves the player can do in the given board.
+numMoves:	mov r0, -(sp)				;r0 - saves the adress of the current square of board.
+			mov r1, -(sp)				;r1 - will save the column number
+			mov r2, -(sp)  			    ;r2 - will save the row number
+			mov r3, -(sp)				;r3 - for loop control. initialized as 56
+			mov r4, -(sp)
+			mov #56., r3					; initialized with 56 ( number of squares we go over on each player turn)
+; ---------------We will check now if Player = 2, means that our check is for Black player moves.--------------------------
+; ---------------we initialize r0 to point to the first square in Board----------------------------------------------------
+			mov 16(sp), r0 					; save first square adress
+			clr r1						; column counter
+			clr r2
+			cmp #2, 14(sp)					
+			beq blckTurn 					; go to Black player part of the program
+; ---------------If We arrived here,it means Player = 1 and we need to check for the White player moves--------------------
+; ---------------so now we go from the Left to the Right, starting from the last row - square by square--------------------
+			add #176, r0  					;save last square of Board adress((64-1) * 2 (decimal) = 176 (octal) )
+			mov #8, r1 						; reset column number to 8.( we go over the board from the left to the right)
+			br whtTurn 					; go to White player part of the program
+
+;------------------blckTurn is a loop that goes over the 7 first lines of the Board, one square at a time------------------
+blckTurn:	cmp (r0), #2 					; check whether its a black-pawn square or not
+		    beq chkMarg						; if its black player square - go and check if its a margin-square
+blckTrn2:	add #1, r1 						; add 1 to r1 (column Counter)
+			cmp r1, #8
+			beq clrCol 						; update to a new line
+blckTrn3:	mov #0,checkedR 				; initialization.
+			mov #0,checkedL				 	; initialization
+			add #2, r0
+			sob r3, blckTurn                ; blckTurn loop will go on 56 squares, to check every possible move from each square
+finish:		 								; we finished the Turn !	
+			mov (sp)+, r4
+			mov (sp)+, r3
+			mov (sp)+, r2
+			mov (sp)+, r1
+			mov (sp)+, r0
+			rts pc
+clrCol:		clr r1 							; when column num =8 , set it back to zero
+			add #1, r2 						; +1 to line number
+			br blckTrn3 					; continue black-player turn loop
+chkMarg:	cmp r1, #0						;  to check if we are on a left margin square
+			beq lftMarg
+			cmp r1, #7						;  to check if we are on right margin square
+			beq rghtMarg	
+			br mainChk						;  square isnt a margin-square. go to Main-check
+lftMarg:	add #1, checkedL 				;  flag: we are on the leftest column, so we dont want to check Left
+			br chkRght
+rghtMarg:	add #1, checkedR 				;  flag: we are on the rightest column, so we dont want to check Right	
+			br chkLft	
+			
+mainChk:	cmp checkedR,#0 				;  condition: we checked possibilities for moves on the right side of square
+			beq chkRght
+			cmp checkedL,#0					;  condition: we checked possibilities for moves on the left side of square
+			beq chkLft
+			br blckTrn2						; we checked all posibilites for moves for this pawn, continue Black-turn loop
+
+chkRght:	mov r0, r4 
+			add #22, r4 					; save the Down&Right square's adress of the pawn r4
+			cmp (r4), #1 					; checks whats in down&right square
+			blt rAddMove 					; we found an empty square, add 1 to numMoves
+			bgt flagR 						; we found a black pawn, so continue to next square
+											;Now :white pawn found. We need to check if we can skip:
+			cmp r1, #6 						; verify if we are not going to overflow to the right edge
+			beq flagR 	
+			cmp r2, #6 						; verify if we are not going to overflow on the Down edge
+			beq flagR
+skipRt:		add #22, r4 					; go another time down&right
+			cmp (r4), #0
+			beq rAddMove 					; we can skip, so add 1 to numMoves
+flagR:		mov #1, checkedR 				; flag: Right side check is finished
+			br mainChk
+rAddMove:	add #1, 20(sp) 				; we found a possible move at Right Side, so +1
+			mov #1, checkedR 				; flag: Right side check is finished 
+			br mainChk;
+
+chkLft:		mov r0, r4
+			add #16, r4 					; save the Down&Left square's adress of the pawn
+			cmp (r4), #1 					; checks what in down&left square
+			blt lAddMove 					; we found an empty square, add 1 to numMoves
+			bgt flagL						; we found a black pawn, so continue to next square
+											;Now : white pawn found. We need to check if we can skip:
+			cmp r1, #1 						; verify if we are not going to overflow to left edge
+			beq flagL 	
+			cmp r2, #6 						; verify if we are not going to overflow on the Down edge
+			beq flagL 	
+skipLft:	add #16, r4 					; go another time down&left
+			cmp (r4), #0
+			beq lAddMove 					; we can skip, so add 1 to numMoves
+flagL:		mov #1, checkedL 				; flag, Left side check is finished
+			br mainChk
+lAddMove:	add #1, 20(sp)				; we found a possible move at Left Side, so +1
+			mov #1, checkedL				; flag, Left side check is finished
+			br mainChk;
+;------------------whtTurn is a loop that goes over the 7 last lines of the Board, one square at a time-------------------
+;------------------starting from the last square, and go left&up direction------------------------------------------------
+whtTurn:	cmp (r0), #1 					; check whether its an white pawn square or not
+		    beq chkMargW 					; its a white-pawn square: go and check if its a margin square
+whtTurn2:	sub #1, r1 						; subtitue 1 from r1 (column Counter)
+			cmp r1, #0
+			beq setColW 					; update to a new line(reset column counter to 7)
+whtTurn3:	mov #0,checkedR					;initialization. label is for 'loop continue' after 'setColW'
+			mov #0,checkedL 				;initialization
+			sub #2, r0 						; go one square to the left
+			sob r3, whtTurn
+			br finish						; We finished counting all the possibilities, end program
+setColW:	mov #8, r1 						; set r1(column counter) back to 8 (we moved up 1 line)
+			add #1, r2 						; +1 to line number
+			br whtTurn3 					; continue White-player turn loop
+chkMargW:	cmp r1, #1						; to check if we are on a left margin square
+			beq lftMargW
+			cmp r1, #8 						; to check if we are on right margin square
+			beq rtMargW
+			br mainChkW
+
+lftMargW:	add #1, checkedL 				; flag: we are on the leftest column, so we dont want to check Left
+			br chkRtW
+rtMargW:	add #1, checkedR				;  flag: we are on the rightest column, so we dont want to check Right	
+			br chkLftW
+mainChkW:	
+			cmp checkedR,#0
+			beq chkRtW
+			cmp checkedL,#0
+			beq chkLftW
+			br whtTurn2
+chkRtW:		mov r0, r4 
+			sub #16, r4 					; save the Up&Right square's adress of the pawn
+			cmp (r4), #1 					; checks whats in down&right square
+			blt rAddW 						; we found an empty square, add 1 to numMoves
+			beq wFlagR 						; we found a white pawn, so continue to next square
+											;Now :Black pawn found. We need to check if we can skip:
+			cmp r1, #7 						; verify if we are not going to overflow on the Right edge
+			beq wFlagR 	 					; if we'll overflow : check Flag and continue to main Check label
+			cmp r2, #6 						; verify if we are not going to overflow on the Up edge
+			beq wFlagR 	
+wSkipRt:	sub #16, r4 					; go another time down&right
+			cmp (r4), #0
+			beq rAddW 						; we can skip, so add 1 to numMoves
+wFlagR:		mov #1, checkedR 				; flag, Right is Checked
+			br mainChkW
+rAddW:		add #1, 20(sp) 				; we found a possible move at Right Side, so +1
+			mov #1, checkedR 				; flag, Right is Checked
+			br mainChkW;
+chkLftW:	mov r0, r4
+			sub #22, r4 					; save the Up&Left square's adress of the pawn
+			cmp (r4), #1 					; checks what in down&left square
+			blt lAddW 						; we found an empty square, add 1 to numMoves
+			beq wFlagL 						; we found a white pawn, so continue to next square
+											;Now : white pawn found. We need to check if we can skip:
+			cmp r1, #2 						; verify if we are not going to overflow
+			beq wFlagL 	
+			cmp r2, #6 						; verify if we are not going to overflow on the Up edge
+			beq wFlagL 		
+wSkipLft:	sub #22, r4 					; go another time down&left
+			cmp (r4), #0
+			beq lAddW 						; we can skip, so add 1 to numMoves
+wFlagL:		mov #1, checkedL 				; flag, Left is Checked
+			br mainChkW
+lAddW:		add #1, 20(sp) 					; we found a possible move at Left Side, so +1
+			mov #1, checkedL				; flag, Left is Checked
+			br mainChkW;
+;--------------------------------------------------Flags-----------------------------------------------------------------
+checkedR: .word 0 ; Flag=1 if we checked possibilities for moves in the Right direction for the current square
+checkedL: .word 0 ; Flag=1 if we checked possibilities for moves in the Left direction for the current square
+
+;END OF numMoves Subroutine
+
+; cntPawn count the pawns of the player given on the board given. 
+; Board address and player value is given in stack. the number of pawns(return value) will be in r4.
+cntPawn:	mov r3, -(sp)
+
+; -----------------  push the registers we use to the stack: -----------------  
+			mov r2, -(sp)
+			mov r0, -(sp)
+			clr r4
+; -----------------  iniitilize registers values: -----------------  
+			mov #64., r3 		; for loop control ( num of squares)
+			mov 12(sp), r0		; r0 point to the first square address now
+			mov 10(sp), r2		; r2 contain the player we count 
+chkLoop:	
+			cmp (r0), r2
+			beq addPawn
+loopEnd:	add #2, r0
+			sob r3, chkLoop
+			mov (sp)+, r0
+			mov (sp)+, r2
+			mov (sp)+, r3
+			rts pc
+addPawn:	add #1, r4	
+			br loopEnd	
+;END OF cntPawn Subroutine
